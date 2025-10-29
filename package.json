@@ -1,0 +1,13 @@
+{
+  "name": "ag-remision-backend",
+  "version": "1.0.0",
+  "dependencies": {
+    "@google/generative-ai": "^0.14.1",
+    "@vercel/node": "^3.2.0",
+    "pdf-parse": "^1.1.1",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.3"
+  }
+}

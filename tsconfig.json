@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "es2020",         // Versión moderna de JavaScript
+    "module": "commonjs",      // El formato que usa Vercel
+    "esModuleInterop": true,   // <-- Esta es la magia que arregla esos imports
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "strict": false
+  },
+  "include": [
+    "api/**/*.ts"  // Solo compila los archivos .ts dentro de la carpeta 'api'
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}
