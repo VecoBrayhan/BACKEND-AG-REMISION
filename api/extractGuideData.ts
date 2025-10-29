@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import * as pdfParse from "pdf-parse";
+// Usa 'require' que es más robusto para este tipo de librerías en Node.js
+const pdfParse = require("pdf-parse");
 import * as xlsx from "xlsx";
 // Importa los tipos de Vercel
 import type { VercelRequest, VercelResponse } from '@vercel/node';
