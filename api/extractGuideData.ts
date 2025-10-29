@@ -35,7 +35,7 @@ export default async function handler(
     }
 
     // 3. Preparar el Prompt para Gemini
-    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-preview-09-2025" }); // <-- USA ESTE MODELO EXACTO
     const prompt = `
       Eres un asistente experto en logística de Perú que extrae datos de guías de remisión.
       Analiza el siguiente texto y extrae los campos clave.
