@@ -1,47 +1,10 @@
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
-// Usa 'require' para pdf-parse por si el 'import' falla en Vercel
-const pdfParser = require("pdf-parse");
+// import * as pdfParse from "pdf-parse"; // Error 1: Eliminado. Usamos 'require' abajo.
 import * as xlsx from "xlsx";
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-// --- NUEVA CONFIGURACIÓN: Deshabilitar el parser automático de Vercel ---
-export const config = {
-    api: {
-        bodyParser: false, // ¡Importante! Le decimos a Vercel que nos dé el stream crudo
-    },
-};
-// -----------------------------------------------------------------
-
-// --- NUEVA FUNCIÓN UTILITARIA: Para leer el body manualmente ---
-/**
- * Lee el stream de la petición y lo parsea como JSON.
- * Vercel ahora nos da 'req' como un stream en lugar de 'req.body'.
- */
-async function parseJsonBody(req: VercelRequest): Promise<any> {
-    return new Promise((resolve, reject) => {
-        let body = '';
-        req.on('data', (chunk) => { // Acumula los "trozos" de datos
-            body += chunk.toString();
-        });
-        req.on('end', () => { // Cuando termina de llegar
-            try {
-                if (body) {
-                    resolve(JSON.parse(body)); // Parsea el string completo
-                } else {
-                    reject(new Error("Request body is empty"));
-                }
-            } catch (e) {
-                console.error("Invalid JSON body received:", body);
-                reject(new Error("Invalid JSON body"));
-            }
-        });
-        req.on('error', (err) => {
-            reject(err);
-        });
-    });
-}
-// -----------------------------------------------------------
-
+// Usamos 'require' para pdf-parse por si el 'import' falla en Vercel
+const pdfParser = require("pdf-parse");
 
 // Configuración de Gemini
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
@@ -52,7 +15,7 @@ const safetySettings = [
     { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
 ];
 
-// --- Prompts (sin cambios) ---
+// --- PROMPTS SEPARADOS ---
 const textPrompt = `
       Eres un asistente experto en logística de Perú que extrae datos de guías de remisión a partir de texto.
       Analiza el siguiente texto y extrae los campos clave.
@@ -71,7 +34,7 @@ const textPrompt = `
           "fechaLlegada": "YYYY-MM-DD",
           "fechaRegistro": "YYYY-MM-DD",
           "costoTransporte": "150.00 (flotante, sin 'S/'.)",
-          "productos": "[{\"descripcion\": \"Nombre del producto\", \"cantidad\": 10, \"unidad\": \"UND\"}]"
+          "productos": "(Extrae una lista de productos, cantidad y unidad si es posible)"
         }
       }
     `;
@@ -86,10 +49,10 @@ const imagePrompt = `
         "date": "YYYY-MM-DD (Fecha principal del documento)",
         "ruc": " (El RUC del transportista o emisor)",
         "extractedData": {
-          "fechaLlegada": "YYYY-MM-DD", 
+          "fechaLegada": "YYYY-MM-DD",
           "fechaRegistro": "YYYY-MM-DD",
           "costoTransporte": "150.00 (flotante, sin 'S/'.)",
-          "productos": "[{\"descripcion\": \"Nombre del producto\", \"cantidad\": 10, \"unidad\": \"UND\"}]"
+          "productos": "(Extrae una lista de productos, cantidad y unidad si es posible)"
         }
       }
     `;
@@ -100,17 +63,14 @@ export default async function handler(
     req: VercelRequest,
     res: VercelResponse
 ) {
-    try {
-        // --- PASO 1: Parsear el body manualmente ---
-        const body = await parseJsonBody(req);
-        
-        // --- PASO 2: Ahora sí podemos destructurar 'body' ---
-        const { fileBase64, fileName } = body;
-        
-        if (!fileBase64 || !fileName) {
-            return res.status(400).json({ error: "Faltan fileBase64 o fileName en el body." });
-        }
+    const { fileBase64, fileName } = req.body;
+    
+    // Fallo rápido si no hay datos
+    if (!fileBase64 || !fileName) {
+        return res.status(400).json({ error: "Faltan fileBase64 o fileName." });
+    }
 
+    try {
         const fileBuffer = Buffer.from(fileBase64, "base64");
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-preview-09-2025", safetySettings });
 
@@ -121,6 +81,7 @@ export default async function handler(
             // --- Lógica de PDF ---
             console.log("Procesando PDF...");
             const pdfData = await pdfParser(fileBuffer);
+            // Error 2: Corregido. Usa el nuevo placeholder
             const prompt = textPrompt.replace("__TEXTO_A_ANALIZAR__", pdfData.text);
             result = await model.generateContent(prompt);
 
@@ -131,15 +92,18 @@ export default async function handler(
             const sheetName = workbook.SheetNames[0];
             const worksheet = workbook.Sheets[sheetName];
             const text = xlsx.utils.sheet_to_csv(worksheet);
+            // Error 3: Corregido. Usa el nuevo placeholder
             const prompt = textPrompt.replace("__TEXTO_A_ANALIZAR__", text);
             result = await model.generateContent(prompt);
 
         } else if (fileExt === "png" || fileExt === "jpg" || fileExt === "jpeg") {
-            // --- Lógica de Imagen ---
+            // --- NUEVA Lógica de Imagen ---
             console.log(`Procesando Imagen (${fileExt})...`);
             
+            // Define el tipo MIME correcto
             const mimeType = `image/${fileExt === "jpg" ? "jpeg" : fileExt}`;
 
+            // Define la parte de la imagen para la API de Gemini
             const imagePart = {
                 inlineData: {
                     data: fileBase64, // Ya está en Base64
@@ -164,8 +128,9 @@ export default async function handler(
         return res.status(200).json(JSON.parse(jsonResponse));
 
     } catch (error: any) {
-        console.error("Error en handler de Vercel:", error.message);
+        console.error("Error en handler de Vercel:", error);
         
+        // Captura de errores de API de Google
         if (error.name === 'GoogleGenerativeAIFetchError') {
              return res.status(500).json({ error: `Error de API de Gemini: ${error.message}` });
         }
@@ -173,3 +138,4 @@ export default async function handler(
         return res.status(500).json({ error: `Error al procesar el archivo: ${error.message}` });
     }
 }
+
