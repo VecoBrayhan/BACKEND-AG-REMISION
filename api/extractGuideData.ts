@@ -4,14 +4,19 @@ const pdfParser = require("pdf-parse");
 import * as xlsx from "xlsx";
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-// Configuración de Vercel (sin cambios)
+// --- NUEVA CONFIGURACIÓN: Deshabilitar el parser automático de Vercel ---
 export const config = {
     api: {
         bodyParser: false, // ¡Importante! Le decimos a Vercel que nos dé el stream crudo
     },
 };
+// -----------------------------------------------------------------
 
-// Función para parsear el body (sin cambios)
+// --- NUEVA FUNCIÓN UTILITARIA: Para leer el body manualmente ---
+/**
+ * Lee el stream de la petición y lo parsea como JSON.
+ * Vercel ahora nos da 'req' como un stream en lugar de 'req.body'.
+ */
 async function parseJsonBody(req: VercelRequest): Promise<any> {
     return new Promise((resolve, reject) => {
         let body = '';
@@ -35,8 +40,10 @@ async function parseJsonBody(req: VercelRequest): Promise<any> {
         });
     });
 }
+// -----------------------------------------------------------
 
-// Configuración de Gemini (sin cambios)
+
+// Configuración de Gemini
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 const safetySettings = [
     { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
@@ -45,8 +52,7 @@ const safetySettings = [
     { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
 ];
 
-// --- PROMPTS (MODIFICADOS CON VALIDACIÓN) ---
-
+// --- Prompts (sin cambios) ---
 const textPrompt = `
     Eres un asistente experto en logística de Perú que extrae datos de guías de remisión.
     Tu primera tarea es validar el texto.
@@ -93,7 +99,7 @@ const imagePrompt = `
       }
     }
     `;
-// -----------------------------------------
+// -------------------------
 
 
 export default async function handler(
@@ -104,7 +110,7 @@ export default async function handler(
         // --- PASO 1: Parsear el body manualmente ---
         const body = await parseJsonBody(req);
         
-        // --- PASO 2: Destructurar 'body' ---
+        // --- PASO 2: Ahora sí podemos destructurar 'body' ---
         const { fileBase64, fileName } = body;
         
         if (!fileBase64 || !fileName) {
@@ -112,9 +118,7 @@ export default async function handler(
         }
 
         const fileBuffer = Buffer.from(fileBase64, "base64");
-        
-        // --- CORRECCIÓN: Usar un modelo multimodal que acepte texto E imágenes ---
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash", safetySettings });
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-preview-09-2025", safetySettings });
 
         let result;
         const fileExt = fileName.split('.').pop()?.toLowerCase();
@@ -157,45 +161,19 @@ export default async function handler(
             return res.status(400).json({ error: `Tipo de archivo no soportado: .${fileExt}` });
         }
 
-        // --- RESPUESTA Y VALIDACIÓN (MODIFICADO) ---
+        // --- Respuesta (común para todos) ---
         const response = await result.response;
-        let jsonResponseText = response.text();
-        jsonResponseText = jsonResponseText.replace(/```json/g, "").replace(/```/g, "");
+        let jsonResponse = response.text();
+        jsonResponse = jsonResponse.replace(/```json/g, "").replace(/```/g, "");
 
-        console.log("Respuesta de IA recibida:", jsonResponseText);
-
-        let parsedResponse;
-        try {
-            parsedResponse = JSON.parse(jsonResponseText);
-        } catch (e) {
-            console.error("Error al parsear JSON de Gemini:", e);
-            console.error("JSON problemático:", jsonResponseText);
-            throw new Error("La respuesta de la IA no tuvo un formato JSON válido.");
-        }
-
-        // --- ¡AQUÍ ESTÁ LA VALIDACIÓN! ---
-        // Comprueba si la IA devolvió el JSON de error que le pedimos
-        if (parsedResponse.error) {
-            console.log(`Validación de IA fallida: ${parsedResponse.error}`);
-            // 422: Unprocessable Entity (La sintaxis está bien, pero el contenido no)
-            // Este es el mensaje que pediste.
-            return res.status(422).json({ error: parsedResponse.error });
-        }
-        // ---------------------------------
-
-        console.log("Validación de IA exitosa. Enviando al cliente.");
-        // Si no hay error, el JSON es el de los datos
-        return res.status(200).json(parsedResponse);
+        console.log("Respuesta de IA generada, enviando al cliente.");
+        return res.status(200).json(JSON.parse(jsonResponse));
 
     } catch (error: any) {
         console.error("Error en handler de Vercel:", error.message);
         
         if (error.name === 'GoogleGenerativeAIFetchError') {
              return res.status(500).json({ error: `Error de API de Gemini: ${error.message}` });
-        }
-        // Captura el error de JSON inválido que lanzamos arriba
-        if (error.message.includes("formato JSON válido")) {
-            return res.status(500).json({ error: error.message });
         }
 
         return res.status(500).json({ error: `Error al procesar el archivo: ${error.message}` });
